@@ -834,4 +834,20 @@
             </plugin>
         </plugins>
     </build>
+
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>Github</name>
+            <url>https://maven.pkg.github.com/OptivaInc/gridgain</url>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+        </repository>
+        <snapshotRepository>
+            <id>github</id>
+            <name>Github</name>
+            <url>https://maven.pkg.github.com/OptivaInc/gridgain</url>
+        </snapshotRepository>
+    </distributionManagement>
 </project>
