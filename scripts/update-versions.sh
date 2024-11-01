@@ -27,8 +27,8 @@ if [ $# -eq 0 ]
     exit 1
 fi
 
-echo Updating Java versions to $1 with Maven...
-mvn versions:set -DnewVersion=$1 -Pall-java,all-scala -DgenerateBackupPoms=false -DgroupId=* -DartifactId=* -DoldVersion=* -DprocessDependencies=false
+echo "Updating Java versions to $1 with Maven..."
+./mvnw -s settings.xml -T 2C  versions:set -DnewVersion=$1 -Pall-java,all-scala -DgenerateBackupPoms=false -DgroupId=* -DartifactId=* -DoldVersion=* -DprocessDependencies=false
 
-echo Updating .NET & C++ versions to $1 with Maven...
-mvn validate -P update-versions -D new.ignite.version=$1
+echo "Updating .NET & C++ versions to $1 with Maven..."
+./mvnw -s settings.xml -T 2C  validate -P update-versions -D new.ignite.version=$1

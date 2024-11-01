@@ -798,4 +798,20 @@
             </plugin>
         </plugins>
     </build>
+
+    <distributionManagement>
+        <repository>
+            <id>artifactory</id>
+            <name>Optiva Artifactory</name>
+            <url>https://artifactory.labs.optiva.com/artifactory/repo</url>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+        </repository>
+        <snapshotRepository>
+            <id>artifactory</id>
+            <name>Optiva Artifactory</name>
+            <url>https://maven.pkg.github.com/OptivaInc/gridgain/libs-snapshot</url>
+        </snapshotRepository>
+    </distributionManagement>
 </project>
