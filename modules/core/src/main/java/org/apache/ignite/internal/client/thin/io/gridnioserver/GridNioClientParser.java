@@ -17,7 +17,6 @@
 package org.apache.ignite.internal.client.thin.io.gridnioserver;
 
 import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 
 import org.apache.ignite.internal.client.thin.io.ClientMessageDecoder;
 import org.apache.ignite.internal.util.nio.GridNioParser;
@@ -42,13 +41,7 @@ public class GridNioClientParser implements GridNioParser {
             ses.addMeta(SES_META_DECODER, decoder);
         }
 
-        byte[] bytes = decoder.apply(buf);
-
-        if (bytes == null)
-            return null; // Message is not yet completely received.
-
-        // Thin client protocol is little-endian. ByteBuffer will handle conversion as necessary on big-endian systems.
-        return ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
+        return decoder.apply(buf);
     }
 
     /** {@inheritDoc} */
