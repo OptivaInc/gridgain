@@ -295,8 +295,8 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 import sun.misc.Unsafe;
 
-import static java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 import static java.util.Objects.isNull;
+import static java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 import static org.apache.ignite.IgniteSystemProperties.IGNITE_DISABLE_HOSTNAME_VERIFIER;
 import static org.apache.ignite.IgniteSystemProperties.IGNITE_HOME;
 import static org.apache.ignite.IgniteSystemProperties.IGNITE_IGNORE_LOCAL_HOST_NAME;
@@ -10752,6 +10752,17 @@ public abstract class IgniteUtils {
         return null;
     }
 
+    private static final Map<String, MethodWrapper> methodMap = new ConcurrentHashMap<>();
+
+    private static class MethodWrapper {
+        public static final MethodWrapper NULL = new MethodWrapper(null);
+        final Method method;
+
+        public MethodWrapper(Method method) {
+            this.method = method;
+        }
+    }
+
     /**
      * Finds a non-static and non-abstract method from the class it parents.
      *
@@ -10766,20 +10777,30 @@ public abstract class IgniteUtils {
         Method mtd = null;
 
         Class<?> cls0 = cls;
+        String key = cls.getName() + "." + name;
+
+        if (methodMap.containsKey(key)) {
+            return methodMap.get(key).method;
+        }
 
         while (cls0 != null) {
-            try {
-                mtd = cls0.getDeclaredMethod(name, paramTypes);
-
-                break;
+            for (Method m : cls0.getDeclaredMethods()) {
+                if (m.getName().equals(name) && Arrays.equals(m.getParameterTypes(), paramTypes)) {
+                    mtd = m;
+                    break;
+                }
             }
-            catch (NoSuchMethodException e) {
+            if (mtd != null) {
+                break;
+            } else {
                 cls0 = cls0.getSuperclass();
             }
         }
 
-        if (mtd == null)
+        if (mtd == null) {
+            methodMap.put(key, MethodWrapper.NULL);
             return null;
+        }
 
         mtd.setAccessible(true);
 
@@ -10796,7 +10817,9 @@ public abstract class IgniteUtils {
 
             ClassLoader clsLdr0 = cls0.getClassLoader();
 
-            return clsLdr == clsLdr0 && packageName(cls).equals(packageName(cls0)) ? mtd : null;
+            Method method = clsLdr == clsLdr0 && packageName(cls).equals(packageName(cls0)) ? mtd : null;
+            methodMap.put(key, method == null ? MethodWrapper.NULL : new MethodWrapper(method));
+            return method;
         }
     }
 
