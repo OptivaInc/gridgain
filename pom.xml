@@ -837,17 +837,17 @@
 
     <distributionManagement>
         <repository>
-            <id>github</id>
-            <name>Github</name>
-            <url>https://maven.pkg.github.com/OptivaInc/gridgain</url>
+            <id>artifactory</id>
+            <name>Optiva Artifactory</name>
+            <url>https://artifactory.labs.optiva.com/artifactory/repo</url>
             <snapshots>
                 <enabled>true</enabled>
             </snapshots>
         </repository>
         <snapshotRepository>
-            <id>github</id>
-            <name>Github</name>
-            <url>https://maven.pkg.github.com/OptivaInc/gridgain</url>
+            <id>artifactory</id>
+            <name>Optiva Artifactory</name>
+            <url>https://maven.pkg.github.com/OptivaInc/gridgain/libs-snapshot</url>
         </snapshotRepository>
     </distributionManagement>
 </project>

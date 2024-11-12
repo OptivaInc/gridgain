@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<settings
+        xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 http://maven.apache.org/xsd/settings-1.0.0.xsd">
+    <servers>
+        <server>
+            <id>artifactory</id>
+            <username>${server.username}</username>
+            <password>${server.password}</password>
+        </server>
+    </servers>
+    <proxies>
+        <proxy>
+            <id>http</id>
+            <active>true</active>
+            <protocol>http</protocol>
+            <host>snort-us-central1-a.gcp.optiva.com</host>
+            <port>3128</port>
+            <nonProxyHosts>localhost|127.0.0.1|172.16.*.*|172.18.*.*|10.*.*.*|192.168.*.*|metadata.google.internal|169.254.169.254|*.labs.optiva.com|redknee.com|.redknee.com|*.redknee.com</nonProxyHosts>
+        </proxy>
+        <proxy>
+            <id>https</id>
+            <active>true</active>
+            <protocol>https</protocol>
+            <host>snort-us-central1-a.gcp.optiva.com</host>
+            <port>3128</port>
+            <nonProxyHosts>localhost|127.0.0.1|172.16.*.*|172.18.*.*|10.*.*.*|192.168.*.*|metadata.google.internal|169.254.169.254|*.labs.optiva.com|redknee.com|.redknee.com|*.redknee.com</nonProxyHosts>
+        </proxy>
+    </proxies>
+</settings>
