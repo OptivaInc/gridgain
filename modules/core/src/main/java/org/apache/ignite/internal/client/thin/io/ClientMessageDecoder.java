@@ -17,13 +17,17 @@
 package org.apache.ignite.internal.client.thin.io;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Decodes thin client messages from partial buffers.
  */
 public class ClientMessageDecoder {
     /** */
-    private byte[] data;
+    private ByteBuffer data;
 
     /** */
     private int cnt = -4;
@@ -37,10 +41,44 @@ public class ClientMessageDecoder {
      * @param buf Buffer.
      * @return Decoded message, or null when not yet complete.
      */
-    public byte[] apply(ByteBuffer buf) {
+    public ByteBuffer apply(ByteBuffer buf) {
         boolean msgReady = read(buf);
 
         return msgReady ? data : null;
+    }
+
+    private final List<ByteBuffer> bufferList = new LinkedList<>();
+    private final AtomicInteger count = new AtomicInteger();
+
+    public ClientMessageDecoder() {
+        for (int i = 0; i < 4; i++) {
+            bufferList.add(null);
+        }
+    }
+
+    private ByteBuffer getBuffer(int msgSize) {
+        ByteBuffer buffer = null;
+        int firstIndex = -1;
+        while (buffer == null) {
+            int index = count.getAndIncrement() % bufferList.size();
+            index = index >= 0 ? index : index + bufferList.size();
+            firstIndex = firstIndex == -1 ? index : firstIndex == index ? -2 : firstIndex;
+            buffer = bufferList.get(index);
+            if (buffer == null || buffer.capacity() < msgSize) {
+                buffer = ByteBuffer.allocate(msgSize).order(ByteOrder.LITTLE_ENDIAN);
+                bufferList.set(index, buffer);
+                break;
+            } else if (buffer.hasRemaining()) {
+                if (firstIndex == -2) {
+                    buffer = ByteBuffer.allocate(msgSize).order(ByteOrder.LITTLE_ENDIAN);
+                    bufferList.add(buffer);
+                    break;
+                }
+                buffer = null;
+            }
+        }
+        buffer.position(0).limit(msgSize);
+        return buffer;
     }
 
     /**
@@ -57,8 +95,7 @@ public class ClientMessageDecoder {
 
             if (cnt < 0)
                 return false;
-
-            data = new byte[msgSize];
+            data = getBuffer(msgSize);
         }
 
         assert data != null;
@@ -73,16 +110,16 @@ public class ClientMessageDecoder {
             if (missing > 0) {
                 int len = Math.min(missing, remaining);
 
-                buf.get(data, cnt, len);
+                data.put(buf);
 
                 cnt += len;
             }
         }
 
         if (cnt == msgSize) {
+            data.position(0);
             cnt = -4;
             msgSize = 0;
-
             return true;
         }
 
