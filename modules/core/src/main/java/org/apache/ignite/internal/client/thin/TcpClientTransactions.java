@@ -16,9 +16,6 @@
 
 package org.apache.ignite.internal.client.thin;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
 import org.apache.ignite.client.ClientConnectionException;
 import org.apache.ignite.client.ClientException;
 import org.apache.ignite.client.ClientTransaction;
@@ -29,6 +26,13 @@ import org.apache.ignite.internal.binary.BinaryWriterExImpl;
 import org.apache.ignite.internal.util.typedef.internal.A;
 import org.apache.ignite.transactions.TransactionConcurrency;
 import org.apache.ignite.transactions.TransactionIsolation;
+import org.jetbrains.annotations.NotNull;
+import org.jsr166.ConcurrentLinkedHashMap;
+
+import java.time.LocalDateTime;
+import java.util.Iterator;
+import java.util.SplittableRandom;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.apache.ignite.internal.client.thin.ProtocolVersionFeature.TRANSACTIONS;
 
@@ -45,14 +49,17 @@ class TcpClientTransactions implements ClientTransactions {
     /** Tx counter (used to generate tx UID). */
     private final AtomicLong txCnt = new AtomicLong();
 
-    /** Current thread transaction UID. */
-    private final ThreadLocal<Long> threadLocTxUid = new ThreadLocal<>();
-
     /** Tx map (Tx UID to Tx). */
-    private final Map<Long, TcpClientTransaction> txMap = new ConcurrentHashMap<>();
+    private final ConcurrentLinkedHashMap<String, TcpClientTransaction> txMap = new ConcurrentLinkedHashMap<>();
 
     /** Tx config. */
     private final ClientTransactionConfiguration txCfg;
+
+    /** random to generate labels */
+    private final SplittableRandom random = new SplittableRandom();
+
+    /** empty label array */
+    private static final String[] STR_ARR = new String[0];
 
     /** Constructor. */
     TcpClientTransactions(ReliableChannel ch, ClientBinaryMarshaller marsh, ClientTransactionConfiguration txCfg) {
@@ -84,10 +91,11 @@ class TcpClientTransactions implements ClientTransactions {
      */
     private ClientTransaction txStart0(TransactionConcurrency concurrency, TransactionIsolation isolation, Long timeout,
         String lb) {
-        TcpClientTransaction tx0 = tx();
-
-        if (tx0 != null)
-            throw new ClientException("A transaction has already been started by the current thread.");
+        final String label = calculateLabel(lb);
+        TcpClientTransaction tx0 = getTxWithLabel(label);
+        if (tx0 != null) {
+            return tx0;
+        }
 
         tx0 = ch.service(ClientOperation.TX_START,
             req -> {
@@ -105,12 +113,9 @@ class TcpClientTransactions implements ClientTransactions {
                     writer.writeString(lb);
                 }
             },
-            res -> new TcpClientTransaction(res.in().readInt(), res.clientChannel())
-        );
+            res -> new TcpClientTransaction(label, res.in().readInt(), res.clientChannel(), this));
 
-        threadLocTxUid.set(tx0.txUid);
-
-        txMap.put(tx0.txUid, tx0);
+        txMap.put(label, tx0);
 
         return tx0;
     }
@@ -125,16 +130,56 @@ class TcpClientTransactions implements ClientTransactions {
     /**
      * Current thread transaction.
      */
-    TcpClientTransaction tx() {
-        Long txUid = threadLocTxUid.get();
+    public TcpClientTransaction tx() {
+        Iterator<TcpClientTransaction> iterator = txMap.descendingValues().iterator();
+        return iterator.hasNext()
+               ? iterator.next()
+               : null;
+    }
 
-        if (txUid == null)
+    @NotNull
+    private String calculateLabel(String lb) {
+        if (lb == null) {
+            lb = Integer.toHexString(random.nextInt(Integer.MAX_VALUE));
+        }
+        return lb;
+    }
+
+    @SuppressWarnings("resource")
+    public void remove(String label) {
+        if (label != null) {
+            txMap.remove(label);
+        }
+    }
+
+    @SuppressWarnings("resource")
+    TcpClientTransaction getTxWithLabel(String lb) {
+        TcpClientTransaction tx0 = txMap.get(lb);
+
+        if (tx0 == null || tx0.isClosed()) {
+            txMap.remove(lb);
             return null;
+        } else {
+            return tx0;
+        }
+    }
 
-        TcpClientTransaction tx0 = txMap.get(txUid);
+    public boolean isFree() {
+        return txMap.isEmpty();
+    }
 
-        // Also check isClosed() flag, since transaction can be closed by another thread.
-        return tx0 == null || tx0.isClosed() ? null : tx0;
+    public void clean() {
+        String[] txns = txMap.keySet().toArray(STR_ARR);
+        for (String txn : txns) {
+            try {
+                TcpClientTransaction tx = txMap.remove(txn);
+                if (tx != null) {
+                    tx.close();
+                }
+            } catch (ClientException ignored) {
+                // exception is not important at this point
+            }
+        }
     }
 
     /**
@@ -184,7 +229,7 @@ class TcpClientTransactions implements ClientTransactions {
      */
     class TcpClientTransaction implements ClientTransaction {
         /** Unique client-side transaction id. */
-        private final long txUid;
+        private final String label;
 
         /** Server-side transaction id. */
         private final int txId;
@@ -196,25 +241,34 @@ class TcpClientTransactions implements ClientTransactions {
         private volatile boolean closed;
 
         /**
-         * @param id Transaction ID.
-         * @param clientCh Client channel.
+         * Transaction manager.
          */
-        private TcpClientTransaction(int id, ClientChannel clientCh) {
-            txUid = txCnt.incrementAndGet();
-            txId = id;
+        private final TcpClientTransactions transactionManager;
+
+        final String creator;
+
+        final String start;
+
+        /**
+         * @param label              Transaction Label.
+         * @param id                 Transaction ID.
+         * @param clientCh           Client channel.
+         * @param transactionManager Transaction Manager.
+         */
+        TcpClientTransaction(String label, int id, ClientChannel clientCh, TcpClientTransactions transactionManager) {
+            this.label = label;
+            this.txId = id;
             this.clientCh = clientCh;
+            this.transactionManager = transactionManager;
+            creator = Thread.currentThread().getName();
+            start = LocalDateTime.now().toString();
         }
 
-        /** {@inheritDoc} */
-        @Override public void commit() {
-            Long threadTxUid;
-
-            if (closed || (threadTxUid = threadLocTxUid.get()) == null)
-                throw new ClientException("The transaction is already closed");
-
-            if (txUid != threadTxUid)
-                throw new ClientException("You can commit transaction only from the thread it was started");
-
+        /**
+         * {@inheritDoc}
+         */
+        @Override
+        public void commit() {
             endTx(true);
         }
 
@@ -239,30 +293,27 @@ class TcpClientTransactions implements ClientTransactions {
         private void endTx(boolean committed) {
             try {
                 clientCh.service(ClientOperation.TX_END,
-                    req -> {
-                        req.out().writeInt(txId);
-                        req.out().writeBoolean(committed);
-                    }, null);
+                                 req -> {
+                                     req.out().writeInt(txId);
+                                     req.out().writeBoolean(committed);
+                                 }, null);
             }
             catch (ClientConnectionException e) {
                 throw new ClientException("Transaction context has been lost due to connection errors", e);
             }
+            catch (ClientServerError e) {
+                throw new TcpClientServerException(toString(), e);
+            }
             finally {
-                txMap.remove(txUid);
-
+                transactionManager.remove(label);
                 closed = true;
-
-                Long threadTxUid = threadLocTxUid.get();
-
-                if (threadTxUid != null && txUid == threadTxUid)
-                    threadLocTxUid.set(null);
             }
         }
 
         /**
          * Tx ID.
          */
-        int txId() {
+        public int txId() {
             return txId;
         }
 
@@ -279,5 +330,30 @@ class TcpClientTransactions implements ClientTransactions {
         boolean isClosed() {
             return closed;
         }
+
+        public String getLabel() {
+            return label;
+        }
+
+        @Override
+        public String toString() {
+            return "TcpClientTransaction{"
+                   + "label='"
+                   + label
+                   + '\''
+                   + ", creator='"
+                   + creator
+                   + '\''
+                   + ", txId="
+                   + txId
+                   + ", start='"
+                   + start
+                   + '\''
+                   + ", now='"
+                   + LocalDateTime.now()
+                   + '\''
+                   + '}';
+        }
     }
+
 }

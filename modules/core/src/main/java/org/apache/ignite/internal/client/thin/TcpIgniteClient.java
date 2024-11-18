@@ -173,7 +173,19 @@ public class TcpIgniteClient implements IgniteClient {
 
     /** {@inheritDoc} */
     @Override public void close() {
+        clean();
         ch.close();
+    }
+
+    public void clean() {
+        transactions.clean();
+    }
+
+    public Boolean isClosed() {
+        return ch.getChannelHolders().stream()
+                .map(ReliableChannel.ClientChannelHolder::isClosed)
+                .reduce((cl1, cl2) -> cl1 || cl2)
+                .orElse(false);
     }
 
     /** {@inheritDoc} */
